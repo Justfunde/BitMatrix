@@ -1,26 +1,41 @@
 #include "Matrix.h"
-Bit_matrix::Bit_matrix(const size_t rows, const size_t cols):i_size(rows),j_size(cols)
+BitMatrix::BitMatrix(const size_t rows, const size_t cols):i_size(rows),j_size(cols)
 {
+	
 	rows_count = rows;
 	cols_count = (j_size % (sizeof(int8_t) * BITS)) ? (j_size / (sizeof(int8_t) * BITS) + 1) : (j_size / (sizeof(int8_t) * BITS));
+	try {
+	allocMem();
 	bit_count = sizeof(bitmap[0][0]) * BITS;
-	alloc_mem();
-	bit_count = sizeof(bitmap[0][0]) * BITS;
+	}
+	catch (std::bad_alloc& exception)
+	{
+		std::cerr << "\nAllocation error:" << exception.what();
+		reset();
+	}
 }
 
-Bit_matrix::Bit_matrix(const Bit_matrix& matrix) :is_alloc(false)
+BitMatrix::BitMatrix(const BitMatrix& matrix) :is_alloc(false)
 {
-	rows_count = matrix.rows_count;
-	cols_count = matrix.cols_count;
-	if (matrix.is_alloc)
-		alloc_mem();
-	cpy_bitmap(bitmap, matrix.bitmap, cols_count, rows_count);
-	i_size = matrix.i_size;
-	j_size = matrix.j_size;
-	bit_count = sizeof(bitmap[0][0]) * BITS;
+	try {
+		rows_count = matrix.rows_count;
+		cols_count = matrix.cols_count;
+		i_size = matrix.i_size;
+		j_size = matrix.j_size;
+		bit_count = sizeof(bitmap[0][0]) * BITS;
+		if (matrix.is_alloc)
+			allocMem();
+		bit_count = sizeof(bitmap[0][0]) * BITS;
+		if (!cpyBitmap(bitmap, matrix.bitmap, cols_count, rows_count)) throw std::runtime_error("Matrix copy error");
+	}
+	catch (std::exception& exception)
+	{
+		std::cerr << "\nStandard error:" << exception.what();
+		this->reset();
+	}
 }
 
-Bit_matrix::Bit_matrix(Bit_matrix&& matrix) noexcept
+BitMatrix::BitMatrix(BitMatrix&& matrix) noexcept
 {
 	cols_count = matrix.cols_count;
 	rows_count = matrix.rows_count;
@@ -30,16 +45,15 @@ Bit_matrix::Bit_matrix(Bit_matrix&& matrix) noexcept
 	bitmap = matrix.bitmap;
 	bit_count = matrix.bit_count;
 	matrix.bitmap = nullptr;
-	
 }
 
-Bit_matrix::~Bit_matrix()
+BitMatrix::~BitMatrix()
 {
 	reset();
 }
 
 //overloaded operators
-Bit_matrix& Bit_matrix::operator=(const Bit_matrix& matrix)
+BitMatrix& BitMatrix::operator=(const BitMatrix& matrix)
 {
 	if (!matrix.is_alloc)
 		return *this;
@@ -51,12 +65,19 @@ Bit_matrix& Bit_matrix::operator=(const Bit_matrix& matrix)
 	i_size = matrix.i_size;
 	j_size = matrix.j_size;
 	bit_count = matrix.bit_count;
-	alloc_mem();
-	cpy_bitmap(bitmap, matrix.bitmap, cols_count, rows_count);
+	try {
+		allocMem();
+		cpyBitmap(bitmap, matrix.bitmap, cols_count, rows_count);
+	}
+	catch (std::exception& exception)
+	{
+		std::cerr << "\nStandard error:" << exception.what();
+		this->reset();
+	}
 	return *this;
 }
 
-Bit_matrix& Bit_matrix::operator=(Bit_matrix&& matrix) noexcept
+BitMatrix& BitMatrix::operator=(BitMatrix&& matrix) noexcept
 {
 	reset();
 	bitmap = matrix.bitmap;
@@ -70,20 +91,26 @@ Bit_matrix& Bit_matrix::operator=(Bit_matrix&& matrix) noexcept
 	return *this;
 }
 
-Bit_matrix operator^(const Bit_matrix& matr1, const Bit_matrix& matr2)
+BitMatrix operator^(const BitMatrix& matr1, const BitMatrix& matr2) noexcept
 {
-	if (!matr1.is_alloc || !matr2.is_alloc)
-		return Bit_matrix();
-	if (matr1.j_size != matr2.j_size || matr1.i_size != matr2.i_size)
-		return Bit_matrix();
-	Bit_matrix result(matr1.i_size, matr1.j_size);
+	if (!matr1.is_alloc || !matr1.bitmap) throw std::runtime_error("First argument is not allocated!");
+	if (!matr2.is_alloc || !matr2.bitmap) throw std::runtime_error("Second argument is not allocated!");
+	if (matr1.j_size != matr2.j_size || matr1.i_size != matr2.i_size) throw std::runtime_error("Objects have uncomparable sizes!");
+	BitMatrix result(matr1.i_size, matr1.j_size);
 	for (size_t i = 0; i < matr1.rows_count; i++)
 		for (size_t j = 0; j < matr1.cols_count; j++)
 			result.bitmap[i][j] = matr1.bitmap[i][j] ^ matr2.bitmap[i][j];
 	return result;
 }
 
-bool Bit_matrix::operator!()
+bool operator==(const BitMatrix& matr1, const BitMatrix& matr2) noexcept
+{
+	if (BitMatrix::compare(matr1, matr2) == 1)
+		return true;
+	return false;
+}
+
+bool BitMatrix::operator!() noexcept
 {
 	if (!is_alloc||!bitmap)
 		return true;
@@ -94,50 +121,44 @@ bool Bit_matrix::operator!()
 
 //Getters
 
-int32_t Bit_matrix::get(size_t i, size_t j) const 
+bool BitMatrix::get(size_t i, size_t j) const 
 {
-	if (!is_alloc)
-		return static_cast<int8_t>(Matrix_state::ALLOC_ERROR);
-	if (i >= i_size || j >= j_size)
-		return static_cast<int32_t>(Matrix_state::INDEX_ERROR);
+	if (!is_alloc || !bitmap) throw std::runtime_error("Allocation error");
+	if (i >= i_size || j >= j_size) throw std::runtime_error("Invalid index");
 	//finding byte pos in arr
 	const size_t i_byte_pos = i;
 	const size_t j_byte_pos = j / bit_count;
-	const size_t j_addit_bit_pos = bit_count - 1 - j% bit_count;
+	const size_t j_addit_bit_pos = bit_count - 1 - j % bit_count;
 	switch ((bitmap[i_byte_pos][j_byte_pos] & BIT(j_addit_bit_pos)) >> j_addit_bit_pos)
 	{
-	case 0x0:return 0x0;
-	case 0x1:return 0x1;
-	default:return static_cast<int32_t>(Matrix_state::OP_FAILURE);
+	case 0x0:return false;
+	case 0x1:return true;
 	}
-	
 }
-int32_t Bit_matrix::unsafe_get(size_t i, size_t j) const
+bool BitMatrix::unsafeGet(size_t i, size_t j) const
 {
-	return (bitmap[i][j / bit_count] & BIT(bit_count - 1 - j % bit_count)) >> (bit_count - 1 - j % bit_count);
+	return static_cast<bool>((bitmap[i][j / bit_count] & BIT(bit_count - 1 - j % bit_count)) >> (bit_count - 1 - j % bit_count));
 }
-bool Bit_matrix::is_allocated() const 
+bool BitMatrix::isAllocated() const 
 { 
 	return is_alloc; 
 }
-size_t Bit_matrix::get_i_size() const
+size_t BitMatrix::get_i_size() const
 {
 	return i_size;
 }
-size_t Bit_matrix::get_j_size() const
+size_t BitMatrix::get_j_size() const
 {
 	return j_size;
 }
 
 //Setters
 
-Matrix_state Bit_matrix::set(size_t i, size_t j, bool value)
+void BitMatrix::set(size_t i, size_t j, bool value)
 {
-	if (!is_alloc)
-		return Matrix_state::ALLOC_ERROR;
-
-	if (i >= i_size || j >= j_size)
-		return Matrix_state::INDEX_ERROR;
+	if (!is_alloc || !bitmap) throw std::runtime_error("Allocation error");
+	if (i >= i_size || j >= j_size) throw std::runtime_error("Invalid index");
+	
 	//finding byte pos in arr
 	const size_t i_byte_pos = i;
 	const size_t j_byte_pos = j / bit_count;
@@ -152,16 +173,10 @@ Matrix_state Bit_matrix::set(size_t i, size_t j, bool value)
 		bitmap[i_byte_pos][j_byte_pos] &= ~BIT(j_addit_bit_pos);
 		break;
 	}
-
-	switch ((bitmap[i_byte_pos][j_byte_pos] & BIT(j_addit_bit_pos)) >> j_addit_bit_pos)
-	{
-	case 0x0: return Matrix_state::OP_SUCCESS;
-	case 0x1: return Matrix_state::OP_SUCCESS;
-	default:  return Matrix_state::OP_FAILURE;
-	}
+	
 }
 
-void Bit_matrix::unsafe_set(size_t i, size_t j, bool value)
+void BitMatrix::unsafeSet(size_t i, size_t j, bool value)
 {
 	switch (value)
 	{
@@ -173,101 +188,75 @@ void Bit_matrix::unsafe_set(size_t i, size_t j, bool value)
 		break;
 	}
 }
-
-Matrix_state Bit_matrix::set_in_range(size_t i_start, size_t j_start, size_t i_end, size_t j_end, bool value)
+ void  BitMatrix::unsafeSetByte(size_t i, size_t j, bool value)
 {
-	const size_t j_start_byte_pos = j_start / bit_count;
-	const size_t j_end_byte_pos = j_end / bit_count;
-	const bool key = (j_end_byte_pos - j_start_byte_pos > 1) ? true : false;
-
 	switch (value)
 	{
-	case 1:
-	{
-		if (key)
-		{
-			for (size_t i = i_start; i <= i_end; i++)
-			{
-				for (size_t j = j_start_byte_pos + 1; j <= j_end_byte_pos - 1; j++)
-				{
-					bitmap[i][j] = 0xFF;
-					
-				}
-			}
-			for (size_t i = i_start; i <= i_end; i++)
-			{
-				for (size_t j = j_start; j < (j_start_byte_pos + 1) * bit_count; j++)
-					unsafe_set(i, j, value);
-
-				for (size_t j = (j_end_byte_pos - 1) * bit_count; j <= j_end; j++)
-					unsafe_set(i, j, value);
-			}
-		}
-		else
-			for (size_t i = i_start; i <= i_end; i++)
-				for (size_t j = j_start; j <= j_end; j++)
-					unsafe_set(i, j, value);
-
-
+	case true:
+		bitmap[i][j] = 0xFF;
 		break;
+	case false:
+		bitmap[i][j] = 0;
 	}
-	case 0:
-	{
-		if (key)
-		{
-			for (size_t i = i_start; i <= i_end; i++)
-				for (size_t j = j_start_byte_pos + 1; j <= j_end_byte_pos - 1; j++)
-					bitmap[i][j] = 0;
-			for (size_t i = i_start; i <= i_end; i++)
-			{
-				for (size_t j = j_start; j < (j_start_byte_pos+1) * bit_count; j++)
-					unsafe_set(i, j, value);
+}
 
-				for (size_t j = (j_end_byte_pos-1) * bit_count; j <= j_end; j++)
-					unsafe_set(i, j, value);
-			}
-		}
-		else
-		{
-			for (size_t i = i_start; i <= i_end; i++)
-				for (size_t j = j_start; j <= j_end; j++)
-					unsafe_set(i, j, value);
-		}
-		break;
-	}
-	}
+void BitMatrix::setRange(size_t i_start, size_t j_start, size_t i_end, size_t j_end, bool value)
+{
+	if (!is_alloc||!bitmap) throw std::runtime_error("Allocation error");
+	if (i_start > i_end || i_end > i_size) throw std::runtime_error("Invalid index");
+	if (j_start > j_end || j_end > j_size) throw std::runtime_error("Invalid index");
 	
 
-	return Matrix_state::OP_SUCCESS;
+	const int64_t j_start_byte_pos = j_start / bit_count;
+	const int64_t j_end_byte_pos = j_end / bit_count;
+	switch ((j_end_byte_pos - j_start_byte_pos - 1) > 0)//does column range contains full byte
+	{
+	case true:
+		for (size_t i = i_start; i < i_end; i++)
+			for (size_t j = j_start_byte_pos + 1; j < j_end_byte_pos; j++)
+				unsafeSetByte(i, j, value);
+	
+		for (size_t i = i_start; i < i_end; i++)
+			for (size_t j = j_start; j < (j_start_byte_pos + 1) * bit_count; j++)
+				unsafeSet(i, j, value);
+		
+		for (size_t i = i_start; i < i_end; i++)
+			for (size_t j = j_end_byte_pos * bit_count; j < j_end; j++)
+				unsafeSet(i, j, value);
+		break;
+
+	case false:
+		for (size_t i = i_start; i < i_end; i++)
+			for (size_t j = j_start; j < j_end; j++)
+				unsafeSet(i, j, value);
+		break;
+	
+	}
 }
 
 
 
 
-Matrix_state Bit_matrix::print() const
+bool BitMatrix::print() const
 {
-	if (!is_alloc)
-		return Matrix_state::ALLOC_ERROR;
-
+	if (!is_alloc || !bitmap)
+		return false;
 	for (size_t i = 0; i < i_size; i++)
 	{
 		for (size_t j = 0; j < j_size; j++)
 		{
-
-			const int8_t shift = bit_count - 1 - j % bit_count;
-			std::cout << ((bitmap[i][j / bit_count] & BIT(shift)) >> shift);
+			std::cout <<  get(i, j);
 		}
 		std::cout << "\n";
 	}
-	return Matrix_state::INDEX_ERROR;
+	return true;
 }
 
-double Bit_matrix::unit_ratio()
+double BitMatrix::unitRatio()
 {
-	if (!is_alloc)
+	if (!is_alloc||!bitmap)
 		return -1;
 	double unit = 0;
-	
 	for (size_t i = 0; i < rows_count; i++)
 	{
 		for (size_t j = 0; j < cols_count; j++)
@@ -284,86 +273,95 @@ double Bit_matrix::unit_ratio()
 	return unit / static_cast<double>(i_size * j_size);
 }
 
-double Bit_matrix::compare(const Bit_matrix& matr1, const Bit_matrix& matr2)
+inline double BitMatrix::compare(const BitMatrix& matr1, const BitMatrix& matr2)
 {
-	Bit_matrix res = matr1 ^ matr2;
-	return res.unit_ratio();
+	double res = 0;
+	try
+	{
+		 res = 1 - (matr1 ^ matr2).unitRatio();
+	}
+	catch (std::exception& exception)
+	{
+		std::cerr << "\nStandard error:" << exception.what();
+		return -1;
+	}
+	return res;
 }
 
-Matrix_state Bit_matrix::ones()
+void BitMatrix::ones()
 {
-	if (!is_alloc)
-		return Matrix_state::ALLOC_ERROR;
-	
-	int8_t unused_area = 0xFF;
-	for (size_t i = 0; i < rows_count * bit_count - j_size; i++)
-		unused_area &= ~BIT(i);
-
-	for (size_t i = 0; i < rows_count; i++)
-		for (size_t j = 0; j < cols_count; j++)
-		{
-			bitmap[i][j] = static_cast<int8_t>(0xFFFFFFFF);
-			if (j == rows_count - 1)
-				bitmap[i][j] &= unused_area;
-		}
-
-	return Matrix_state::MATR_CORRECT;
+	setRange(0, 0, i_size, j_size, 1);
 }
-Matrix_state Bit_matrix::zeros()
+void BitMatrix::zeros()
 {
-	if (!is_alloc)
-		return Matrix_state::ALLOC_ERROR;
-
+	if (!is_alloc || !bitmap) throw std::runtime_error("Allocation error");
 	for (size_t i = 0; i < rows_count; i++)
 		for (size_t j = 0; j < cols_count; j++)
 			bitmap[i][j] = 0;
-	return Matrix_state::MATR_CORRECT;
 }
-Matrix_state Bit_matrix::randm()
+void BitMatrix::randm()
 {
-	if (!is_alloc)
-		return Matrix_state::ALLOC_ERROR;
-	srand(time(nullptr));
-	//rand();
-	int8_t unused_area = 0xFF;
-	for (size_t i = 0; i < rows_count * bit_count - j_size; i++)
-		unused_area &= ~BIT(i);
-
-	for (size_t i = 0; i < rows_count; i++)
-		for (size_t j = 0; j < cols_count; j++)
+	if (!is_alloc || !bitmap) throw std::runtime_error("Allocation error");
+	std::mt19937 engine; 
+	engine.seed(std::time(nullptr));
+	for (size_t i = 0; i < i_size; i++)
+	{
+		for (size_t j = 0; j < j_size; j++)
 		{
-			bitmap[i][j] = static_cast<int8_t>(rand());
-			if (j == rows_count - 1)
-				bitmap[i][j] &= unused_area;
+			bool val = (engine() % 2 == 0) ? true : false;
+			unsafeSet(i, j, val);
 		}
-	return Matrix_state::OP_SUCCESS;
+	}
 
 }
-Matrix_state Bit_matrix::resize(size_t rows, size_t cols)
+bool BitMatrix::resize(size_t rows, size_t cols)
 {
-	if (rows <= 0 || cols <= 0)
-		return Matrix_state::INDEX_ERROR;
+	if (rows <= 0 || cols <= 0) throw std::runtime_error("Matrix resize parameters error!");
+	
 	reset();
 	rows_count = i_size = rows;
 	j_size = cols;
 	cols_count = (j_size % (sizeof(int8_t) * BITS)) ? (j_size / (sizeof(int8_t) * BITS) + 1) : (j_size / (sizeof(int8_t) * BITS));
-	bit_count = sizeof(bitmap[0][0]) * BITS;
-	alloc_mem();
-	return Matrix_state::OP_SUCCESS;
-	
+	try {
+		allocMem();
+		bit_count = sizeof(bitmap[0][0]) * BITS;
+	}
+	catch (std::bad_alloc& exception)
+	{
+		std::cerr << "\nStandard error:" << exception.what();
+		reset();
+		return false;
+	}
+
+	return true;
+}
+
+
+std::string BitMatrix::makeString()
+{
+	std::string str;
+	str.reserve(cols_count * rows_count);
+	for (size_t i = 0; i < rows_count; i++)
+		for (size_t j = 0; j < cols_count; j++)
+			str += bitmap[i][j];
+	return str;
 }
 //utility methods
 
 
-void Bit_matrix::cpy_bitmap(int8_t** dest, int8_t** source, const size_t cols, const size_t rows)
+bool BitMatrix::cpyBitmap(int8_t** dest, int8_t** source, const size_t cols, const size_t rows)
 {
+	if (!dest || !source)
+		return false;
 	for (size_t i = 0; i < rows; i++)
 		for (size_t j = 0; j < cols; j++)
 			dest[i][j] = source[i][j];
+	return true;
 }
 
-void Bit_matrix::alloc_mem()
+void BitMatrix::allocMem()
 {
+
 	bitmap = new int8_t * [rows_count];
 	for (size_t i = 0; i < rows_count; i++)
 	{
@@ -375,9 +373,10 @@ void Bit_matrix::alloc_mem()
 			bitmap[i][j] = 0;
 		}
 	is_alloc = true;
+	
 }
 
-void Bit_matrix::reset()
+void BitMatrix::reset()
 {
 	if (bitmap)
 	{
@@ -387,8 +386,9 @@ void Bit_matrix::reset()
 			bitmap[i] = nullptr;
 		}
 		delete[] bitmap;
-		bitmap = nullptr;
+		
 	}
+	bitmap = nullptr;
 	is_alloc = false;
 	i_size = 0;
 	j_size = 0;
@@ -396,3 +396,4 @@ void Bit_matrix::reset()
 	rows_count = 0;
 	bit_count = 0;
 }
+

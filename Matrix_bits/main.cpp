@@ -1,51 +1,91 @@
-#include "Matrix.h"
-#include "Base64.h"
+#include "LayoutMatrix.h"
 using namespace std;
 int main()
-{	  
-	
-	unsigned char a = 0b01111111;
-	string code;
-	code+= (char)0b10100111;
-	code+= (char)0b00100010;
-	code+= (char)0b10010010;
-	std::cout << code<<endl;
-	string encoded;
-	encoded = base64_encode(code, false);
-	cout << encoded << "   " << encoded.length();
-	Bit_matrix  matr(10,25),matr1(10,25),matr2;
-	string from_matr,check;
-	for (size_t i = 0; i < 10 * 25; i++)
-		check += '0';
+{	
 
-	cout << check;
-	//if (!matr2)
-		//cout << "NO";
-	for (size_t i = 0; i < 10; i++)
-	{
-		for (size_t j = 0; j < 25;j++)
+	//LayoutMatrix test(10, 10);
+	//test.print();
+	//std::cout << test.encodeHash();
+	//test.decodeHash();
+	//test.print();
+	//
+	//test.randm();
+	//test.print();
+	//std::cout <<endl<<test.encodeHash()<<endl;
+	//test.decodeHash();
+	//test.print();
+	try {
+		for (size_t i = 1000; i < 10000; i+=500)
 		{
-			matr.set(i, j, 1);
+			for (size_t j = 1; j < 10000; j++)
+			{
+				
+				LayoutMatrix matr(i, j);
+				matr.randm();
+				matr.encodeHash();
+				LayoutMatrix matr2;
+				matr2.setHash(matr.getHash());
+				matr2.decodeHash();
+				cout << "\ni=" << i << "\tj=" << j;
+				if (matr == matr2)
+					cout << "\tcorrect";
+				else
+				{
+					cout << "\tBAD";
+					system("pause");
+				}
+			}
 		}
 	}
-	matr.print();
-	for (size_t i = 0; i < 10; i+=2)
-		for (size_t j = 0; j < 25; j += 2)
-		{
-			matr1.set(i, j, 1);
-			check[i + j * (i + 1)] = '1';
-		}
-	from_matr = get_str(matr1);
-	check = base64_encode(check, false);
-	from_matr = base64_encode(from_matr, false);
-	cout << check.length() << "    " << from_matr.length();
-	cout << endl;
-	//matr1.print();
-	cout << endl;
-	(matr1 ^ matr).print();
-	cout << endl << (matr1 ^ matr).unit_ratio();
+	catch (std::exception& ex)
+	{
+		cout << endl<<ex.what();
+	}
 	
-
+	//LayoutMatrix lMatr(30, 30);
+	//LayoutMatrix KMatr(30, 30);
 	
+	//lMatr.randm();
+	//KMatr = lMatr;
+	//lMatr.print();
+	//if (lMatr == KMatr)
+	//{
+		//cout << "\nCORRECT!\n";
+	//}
+	//std::cout << std::endl<<lMatr.encodeHash();
+	//lMatr.setHash(lMatr.getHash());
+	//std::cout << std::endl;
+	//lMatr.decodeHash().print();
+	
+	//matr.ones();
+	//matr.print();
+	//std::cout << std::endl;
+	//matr.zeros();
+	//matr.print();
+	//std::cout << std::endl;
+	//std::cout << std::endl;
+	//std::cout << std::endl;
+	//std::cout << std::endl;
+	//bool flag = true;
+	//for (size_t i = 0; i < matr.get_i_size()-i-1; i++)
+	//{
+	//	matr.setRange(i, i, matr.get_i_size() - i - 1, matr.get_i_size() - i - 1, flag);
+	//	flag = !flag;
+	//	matr.print();
+	//	
+	//}
+	//
+	//	matr.setRange(1, 1, matr.get_i_size() - 1, matr.get_j_size() - 1 , 1);
+	//	matr.print();
+	//	matr.resize(20, 20);
+	//	matr.print();
+	//	matr.setRange(1, 1, matr.get_i_size() - 1, matr.get_j_size() - 1, 1);
+	//	matr.print();
+	//
+	//
+	//
+	//
+	//
+	//
 	return 0;
 }
